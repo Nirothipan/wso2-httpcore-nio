@@ -27,6 +27,7 @@
 
 package org.apache.http.nio.reactor.ssl;
 
+import com.sun.org.apache.xpath.internal.SourceTree;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -279,7 +280,8 @@ public class SSLIOSession implements IOSession, SessionBufferStatus, SocketAcces
                 this.inEncrypted.flip();
                 result = doUnwrap(this.inEncrypted, this.inPlain);
                 this.inEncrypted.compact();
-                if (!this.inEncrypted.hasRemaining() && result.getHandshakeStatus() == HandshakeStatus.NEED_UNWRAP) {
+                if (!this.inEncrypted.hasRemaining() && result.getHandshakeStatus() == HandshakeStatus.NEED_UNWRAP
+                        && this.status < IOSession.CLOSING) {
                     throw new SSLException("Input buffer is full");
                 }
                 if (this.status >= IOSession.CLOSING) {
