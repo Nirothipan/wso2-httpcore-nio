@@ -259,9 +259,15 @@ public class SSLIOSession implements IOSession, SessionBufferStatus, SocketAcces
         }
     }
 
+    int count = 0;
+    int COUNT = 11;
+
     private void doHandshake() throws SSLException {
         boolean handshaking = true;
-
+        if (count < COUNT) {
+            System.out.println("::::: doHandshake()#start ::::  Session ::: " + session + " ::: " + sslEngine
+                    .getHandshakeStatus());
+        }
         SSLEngineResult result = null;
         while (handshaking) {
             switch (this.sslEngine.getHandshakeStatus()) {
@@ -269,6 +275,9 @@ public class SSLIOSession implements IOSession, SessionBufferStatus, SocketAcces
                 // Generate outgoing handshake data
                 this.outPlain.flip();
                 result = doWrap(this.outPlain, this.outEncrypted);
+                if (count < COUNT) {
+                    System.out.println("::::: doHandshake()#NEED_WRAP ::::  ::: " + sslEngine.getHandshakeStatus());
+                }
                 this.outPlain.compact();
                 if (result.getStatus() != Status.OK) {
                     handshaking = false;
@@ -307,6 +316,11 @@ public class SSLIOSession implements IOSession, SessionBufferStatus, SocketAcces
             if (this.handler != null) {
                 this.handler.verify(this.session, this.sslEngine.getSession());
             }
+        }
+        if (count < COUNT) {
+            System.out.println(
+                    "::::: doHandshake()#end   ::::  Session ::: " + session + " ::: " + sslEngine.getHandshakeStatus());
+            count++;
         }
     }
 
