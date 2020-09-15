@@ -54,6 +54,7 @@ import org.apache.http.util.Args;
 import org.apache.http.util.Asserts;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.channels.Selector;
 
 /**
  * <tt>SSLIOSession</tt> is a decorator class intended to transparently extend
@@ -82,6 +83,7 @@ public class SSLIOSession implements IOSession, SessionBufferStatus, SocketAcces
     public static final String SESSION_KEY = "http.session.ssl";
 
     private final IOSession session;
+    private final Selector selector;
     private final SSLEngine sslEngine;
     private final ByteBuffer inEncrypted;
     private final ByteBuffer outEncrypted;
@@ -159,6 +161,7 @@ public class SSLIOSession implements IOSession, SessionBufferStatus, SocketAcces
         final int appBuffersize = this.sslEngine.getSession().getApplicationBufferSize();
         this.inPlain = ByteBuffer.allocate(appBuffersize);
         this.outPlain = ByteBuffer.allocate(appBuffersize);
+        this.selector = ((IOSessionImpl) this.session).getKey().selector();
     }
 
     protected SSLSetupHandler getSSLSetupHandler() {
@@ -312,7 +315,12 @@ public class SSLIOSession implements IOSession, SessionBufferStatus, SocketAcces
         }
     }
 
-    private void updateEventMask() {
+    /**
+     * Updates the Mask for the session.
+     *
+     * @return whether selector is waked up upon updating the mask
+     */
+    private boolean updateEventMask() {
         // Graceful session termination
         if (this.status == CLOSING && this.sslEngine.isOutboundDone()
                 && (this.endOfStream || this.sslEngine.isInboundDone())) {
@@ -325,7 +333,7 @@ public class SSLIOSession implements IOSession, SessionBufferStatus, SocketAcces
         }
         if (this.status == CLOSED) {
             this.session.close();
-            return;
+            return true;
         }
         // Need to toggle the event mask for this channel?
         final int oldMask = this.session.getEventMask();
@@ -355,12 +363,12 @@ public class SSLIOSession implements IOSession, SessionBufferStatus, SocketAcces
             newMask = newMask | EventMask.WRITE;
         }
 
+        boolean updateMask = oldMask != newMask;
         // Update the mask if necessary
-        if (oldMask != newMask) {
+        if (updateMask) {
             this.session.setEventMask(newMask);
-        } else {
-            ((IOSessionImpl) this.session).getKey().selector().wakeup();
         }
+        return updateMask;
     }
 
     private int sendEncryptedData() throws IOException {
@@ -518,7 +526,9 @@ public class SSLIOSession implements IOSession, SessionBufferStatus, SocketAcces
         }
         this.status = CLOSING;
         this.sslEngine.closeOutbound();
-        updateEventMask();
+        if (!updateEventMask() && this.selector.isOpen()) {
+            this.selector.wakeup();
+        }
     }
 
     public synchronized void shutdown() {
@@ -555,17 +565,23 @@ public class SSLIOSession implements IOSession, SessionBufferStatus, SocketAcces
 
     public synchronized void setEventMask(final int ops) {
         this.appEventMask = ops;
-        updateEventMask();
+        updateEventMaskAndWakeUpSelector();
     }
 
     public synchronized void setEvent(final int op) {
         this.appEventMask = this.appEventMask | op;
-        updateEventMask();
+        updateEventMaskAndWakeUpSelector();
     }
 
     public synchronized void clearEvent(final int op) {
         this.appEventMask = this.appEventMask & ~op;
-        updateEventMask();
+        updateEventMaskAndWakeUpSelector();
+    }
+
+    private void updateEventMaskAndWakeUpSelector() {
+        if (!updateEventMask()) {
+            this.selector.wakeup();
+        }
     }
 
     public int getSocketTimeout() {
